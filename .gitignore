@@ -1,0 +1,10 @@
+# Compiler files
+cache/*
+out/*
+!/broadcast
+/broadcast/*/31337/
+/broadcast/*/5/
+/broadcast/**/dry-run/
+docs/
+.env
+node_modules/
