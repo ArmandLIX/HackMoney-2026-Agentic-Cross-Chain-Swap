@@ -16,10 +16,7 @@ contract AgentHook is BaseHook {
         agentVault = _vault;
     }
 
-    function getHookPermissions()
-        public
-        pure
-        override
+    function getHookPermissions() public pure override
         returns (Hooks.Permissions memory)
     {
         return Hooks.Permissions({

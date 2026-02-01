@@ -26,7 +26,7 @@ contract AgentHookTest is Test, Deployers {
 
     function setUp() public {
         deployFreshManagerAndRouters();
-        vault = new AgentVault();
+        vault = new AgentVault(address(manager)); 
         address hookAddress = address(uint160(Hooks.BEFORE_SWAP_FLAG) | 0x44440000); 
         deployCodeTo("AgentHook.sol", abi.encode(manager, address(vault)), hookAddress);
         hook = AgentHook(hookAddress);

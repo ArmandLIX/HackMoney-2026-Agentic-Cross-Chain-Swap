@@ -14,12 +14,13 @@ contract MockToken is ERC20 {
 contract AgentVaultTest is Test {
     AgentVault public vault;
     MockToken public token;
+    address public manager = address(0x1234567890123456789012345678901234567890);
     address public agent = address(1);
     address public stranger = address(2);
 
     function setUp() public {
         vm.prank(agent);
-        vault = new AgentVault();
+        vault = new AgentVault(manager);        
         token = new MockToken();
     }
 
@@ -31,6 +32,7 @@ contract AgentVaultTest is Test {
 
     function test_WithdrawAsAgent() public {
         token.transfer(address(vault), 50 * 10**18);
+        
         vm.prank(agent);
         vault.executeWithdrawal(address(token), agent, 50 * 10**18);
         assertEq(token.balanceOf(agent), 50 * 10**18);
@@ -38,6 +40,7 @@ contract AgentVaultTest is Test {
 
     function test_Fail_WithdrawAsStranger() public {
         token.transfer(address(vault), 50 * 10**18);
+        
         vm.prank(stranger);
         vm.expectRevert("Only Agent can trigger execution");
         vault.executeWithdrawal(address(token), stranger, 50 * 10**18);
