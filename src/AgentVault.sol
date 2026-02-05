@@ -1,66 +1,78 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {IPoolManager, SwapParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
+import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 
 contract AgentVault is IUnlockCallback {
     using CurrencyLibrary for Currency;
 
-    address public immutable agent;
     IPoolManager public immutable poolManager;
+    address public immutable agent;
 
-    struct SwapData {
+    struct CallbackData {
         PoolKey key;
         SwapParams params;
     }
 
     constructor(address _poolManager) {
-        agent = msg.sender;
         poolManager = IPoolManager(_poolManager);
+        agent = msg.sender;
     }
 
-    function executeSwap(PoolKey calldata key, SwapParams calldata params) external {
-        require(msg.sender == agent, "Only Agent can trigger execution");
-        _executeSwap(key, params);
+    function onFundsReceived(address tokenReceived, uint256 amountReceived, bytes calldata data) external {
+        (address tokenOut, uint24 fee) = abi.decode(data, (address, uint24));
+        Currency currency0 = Currency.wrap(tokenReceived);
+        Currency currency1 = Currency.wrap(tokenOut);
+        
+        if (currency0 > currency1) {
+            (currency0, currency1) = (currency1, currency0);
+        }
+        PoolKey memory key = PoolKey({
+            currency0: currency0,
+            currency1: currency1,
+            fee: fee,
+            tickSpacing: 60,
+            hooks: IHooks(address(0))
+        });
+        bool zeroForOne = (Currency.wrap(tokenReceived) == key.currency0);
+        
+        SwapParams memory params = SwapParams({
+            zeroForOne: zeroForOne,
+            amountSpecified: -int256(amountReceived),
+            sqrtPriceLimitX96: zeroForOne ? 4295128739 + 1 : 1461446703485210103287273052203988822378723970342 - 1
+        });
+
+        poolManager.unlock(abi.encode(CallbackData(key, params)));
     }
 
-    function onFundsReceived(address token, uint256 amount, bytes calldata swapInstruction) external {
-        require(amount > 0, "No funds received");
-        (PoolKey memory key, SwapParams memory params) = abi.decode(swapInstruction, (PoolKey, SwapParams));
-        require(token == Currency.unwrap(key.currency0) || token == Currency.unwrap(key.currency1), "Token mismatch");
-        _executeSwap(key, params);
-    }
+    function unlockCallback(bytes calldata data) external returns (bytes memory) {
+        require(msg.sender == address(poolManager));
+        CallbackData memory cbData = abi.decode(data, (CallbackData));
+        BalanceDelta delta = poolManager.swap(cbData.key, cbData.params, "");
 
-    function _executeSwap(PoolKey memory key, SwapParams memory params) internal {
-        poolManager.unlock(abi.encode(SwapData({key: key, params: params})));
-    }
-
-    function unlockCallback(bytes calldata data) external override returns (bytes memory) {
-        require(msg.sender == address(poolManager), "Only PoolManager");
-        SwapData memory swapData = abi.decode(data, (SwapData));
-        BalanceDelta delta = poolManager.swap(swapData.key, swapData.params, "");
-        _settle(swapData.key.currency0, delta.amount0());
-        _settle(swapData.key.currency1, delta.amount1());       
+        if (cbData.params.zeroForOne) {
+            _pay(cbData.key.currency0, uint256(int256(delta.amount0())));
+            poolManager.take(cbData.key.currency1, address(this), uint256(int256(-delta.amount1())));
+        } else {
+            _pay(cbData.key.currency1, uint256(int256(delta.amount1())));
+            poolManager.take(cbData.key.currency0, address(this), uint256(int256(-delta.amount0())));
+        }
         return "";
     }
 
-    function _settle(Currency currency, int256 amount) internal {
-        if (amount <= 0) return; 
-        currency.transfer(address(poolManager), uint256(amount));
+    function _pay(Currency currency, uint256 amount) internal {
+        currency.transfer(address(poolManager), amount);
         poolManager.settle();
     }
-
-    function executeWithdrawal(address token, address to, uint256 amount) external {
-        require(msg.sender == agent, "Only Agent can trigger execution");
-        IERC20(token).transfer(to, amount);
-    }
-
-    function deposit(address token, uint256 amount) external {
-        IERC20(token).transferFrom(msg.sender, address(this), amount);
+    
+    function withdraw(address token) external {
+        require(msg.sender == agent);
+        IERC20(token).transfer(agent, IERC20(token).balanceOf(address(this)));
     }
 }
