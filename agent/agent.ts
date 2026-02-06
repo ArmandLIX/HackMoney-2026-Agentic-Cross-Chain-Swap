@@ -1,181 +1,230 @@
-import { createPublicClient, createWalletClient, http, parseUnits, formatUnits, parseAbi, parseEther, encodeFunctionData, encodeAbiParameters } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { sepolia, baseSepolia, arbitrumSepolia } from 'viem/chains';
-import Groq from 'groq-sdk';
-import * as dotenv from 'dotenv';
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  parseUnits,
+  formatUnits,
+  parseAbi,
+  encodeFunctionData,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { sepolia, baseSepolia, arbitrumSepolia } from "viem/chains";
+import { getAddress } from "viem";
+import Groq from "groq-sdk";
+import * as dotenv from "dotenv";
 
 dotenv.config();
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
-const NATIVE_ETH = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 
-const CHAINS_CONFIG: any = {
-    'SEP': { 
-        id: 11155111, 
-        viemChain: sepolia, 
-        rpc: process.env.RPC_SEP, 
-        vault: process.env.VAULT_SEP,
-        tokens: { 'USDC': '0x1c7D4B196Cb0234831493d703c94d5d0FCdfdbBb', 'WETH': '0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9' }
+function loadEnv(name: string): string
+{
+    const value = process.env[name];
+
+    if (!value) throw new Error(`❌ Missing env var: ${name}`);
+        return value;
+}
+
+function loadAddress(name: string): `0x${string}`
+{
+    return getAddress(loadEnv(name));
+}
+
+const groq = new Groq({ apiKey: loadEnv("GROQ_API_KEY") });
+const account = privateKeyToAccount(loadEnv("PRIVATE_KEY") as `0x${string}`);
+const NATIVE_ETH = getAddress("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE");
+
+const CHAINS_CONFIG = {
+    SEP: {
+        id: 11155111,
+        viemChain: sepolia,
+        rpc: loadEnv("RPC_ETHEREUM_SEPOLIA"),
+        vault: loadAddress("VAULT_ETH_SEP"),
+        tokens: {
+            USDC: getAddress("0x1c7D4B196Cb0234831493d703c94d5d0FCdfdbBb"),
+            WETH: getAddress("0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9"),
+            ETH: NATIVE_ETH,
+        },
     },
-    'BAS': { 
-        id: 84532, 
-        viemChain: baseSepolia, 
-        rpc: process.env.RPC_BASE, 
-        vault: process.env.VAULT_BASE,
-        tokens: { 'USDC': '0x036CbD53842c5426634e7929541eC2318f3dCF7e', 'WETH': '0x4200000000000000000000000000000000000006' }
-    },
-    'ARB': { 
-        id: 421614, 
-        viemChain: arbitrumSepolia, 
-        rpc: process.env.RPC_ARB, 
-        vault: process.env.VAULT_ARB,
-        tokens: { 'USDC': '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d', 'WETH': '0x980B6951f8D0C13008b27650c849F89d4dFE318F' }
-    }
+
+    BAS: {
+        id: 84532,
+        viemChain: baseSepolia,
+        rpc: loadEnv("RPC_BASE"),
+        vault: loadAddress("VAULT_BASE"),
+        tokens: {
+            USDC: getAddress("0x036CbD53842c5426634e7929541eC2318f3dCF7e"),
+            WETH: getAddress("0x4200000000000000000000000000000000000006"),
+            ETH: NATIVE_ETH,
+       },
+  },
+
+    ARB: {
+        id: 421614,
+        viemChain: arbitrumSepolia,
+        rpc: loadEnv("RPC_ARBITRUM"),
+        vault: loadAddress("VAULT_ARBITRUM"),
+        tokens: {
+            USDC: getAddress("0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d"),
+            WETH: getAddress("0x980B6951f8D0C13008b27650c849F89d4dFE318F"),
+            ETH: NATIVE_ETH,
+        },
+  },
+} as const;
+
+type ChainKey = keyof typeof CHAINS_CONFIG;
+type TokenKey = "USDC" | "WETH" | "ETH";
+
+type AIDecision = {
+  action: "SWAP" | "WAIT";
+  fromChain: ChainKey;
+  targetChain: ChainKey;
+  sourceToken: TokenKey;
+  targetToken: TokenKey;
+  amount: string;
+  reason: string;
 };
 
-async function scanAllVaults() {
-    console.log("🧐 Scanning Vault balances based on CHAINS_CONFIG...");
-    const report: any = {};
+async function scanAllVaults()
+{
+    console.log("🧐 Scanning Vault balances...");
+    const report: Record<string, Record<string, string>> = {};
 
     for (const [key, config] of Object.entries(CHAINS_CONFIG)) {
-        const client = createPublicClient({ chain: config.viemChain, transport: http(config.rpc) });
-        const balances: any = {};
+        const client = createPublicClient({
+            chain: config.viemChain,
+            transport: http(config.rpc),
+        });
 
-        for (const [symbol, address] of Object.entries(config.tokens)) {
-            if (address === NATIVE_ETH) continue;
+        const balances: Record<string, string> = {};
+
+        for (const [symbol, tokenAddress] of Object.entries(config.tokens)) {
+            if (tokenAddress === NATIVE_ETH)
+                continue;
             try {
                 const bal = await client.readContract({
-                    address: address as `0x${string}`,
-                    abi: parseAbi(['function balanceOf(address) view returns (uint256)']),
-                    functionName: 'balanceOf',
-                    args: [config.vault]
+                    address: tokenAddress as `0x${string}`,
+                    abi: parseAbi(["function balanceOf(address) view returns (uint256)"]),
+                    functionName: "balanceOf",
+                    args: [config.vault],
                 });
-                // Dynamic decimals: USDC uses 6, others usually 18
-                balances[symbol] = formatUnits(bal as bigint, symbol === 'USDC' ? 6 : 18);
-            } catch (e) { balances[symbol] = "0"; }
+
+                balances[symbol] = formatUnits(
+                    bal as bigint,
+                    symbol === "USDC" ? 6 : 18
+                );
+            } catch {
+                balances[symbol] = "0";
+            }
         }
         report[key] = balances;
     }
-    return report;
+  return report;
 }
 
-async function askAIForStrategy(vaultStates: any) {
-    console.log("🤖 AI is analyzing current states...");
-    
-    const allZero = Object.values(vaultStates).every((chain: any) => 
-        Object.values(chain).every(bal => bal === "0")
-    );
+async function askAIForStrategy(vaultStates: any): Promise<AIDecision>
+{
+    console.log("🤖 AI is analyzing states...");
 
-    if (allZero) {
-        return { action: "WAIT", reason: "All vault balances are currently zero. No action possible." };
-    }
+    const prompt = `
+        You are a Cross-Chain DeFi Agent.
 
-    const prompt = `You are a Cross-Chain Hedge Fund Manager.
-    Current Inventory: ${JSON.stringify(vaultStates, null, 2)}
-    
-    CRITICAL RULES:
-    1. If the 'sourceToken' balance is "0", you MUST return {"action": "WAIT"}.
-    2. Only move funds if you have a balance > 0 on the 'fromChain'.
-    3. Use targetChain/targetToken to maximize utility.
+        Inventory:
+        ${JSON.stringify(vaultStates, null, 2)}
 
-    Output strict JSON:
-    {
+        RULES (VERY IMPORTANT):
+        1. Only perform cross-chain transfers using ETH or WETH.
+        2. USDC swaps MUST be same-chain only.
+        3. If balance is zero, return WAIT.
+        4. Prefer moving funds from where they are idle.
+
+        Output STRICT JSON:
+        {
         "action": "SWAP" | "WAIT",
         "fromChain": "SEP" | "BAS" | "ARB",
         "targetChain": "SEP" | "BAS" | "ARB",
-        "sourceToken": "USDC" | "WETH",
-        "targetToken": "USDC" | "WETH",
-        "amount": "string number",
-        "reason": "explanation"
-    }`;
+        "sourceToken": "USDC" | "WETH" | "ETH",
+        "targetToken": "USDC" | "WETH" | "ETH",
+        "amount": "string",
+        "reason": "string"
+        }`;
 
-    const response = await groq.chat.completions.create({
+    const res = await groq.chat.completions.create({
         model: "llama-3.1-8b-instant",
         messages: [{ role: "system", content: prompt }],
-        response_format: { type: "json_object" }
+        response_format: { type: "json_object" },
     });
 
-    return JSON.parse(response.choices[0].message.content || '{}');
+    return JSON.parse(res.choices[0].message.content!) as AIDecision;
 }
 
-async function executeStrategy(decision: any) {
-    const fromConfig = CHAINS_CONFIG[decision.fromChain];
-    const toConfig = CHAINS_CONFIG[decision.targetChain];
-    
-    const fromTokenAddr = fromConfig.tokens[decision.sourceToken];
-    const targetTokenAddr = toConfig.tokens[decision.targetToken];
-    
-    const decimals = decision.sourceToken === 'USDC' ? 6 : 18;
-    const amountRaw = parseUnits(decision.amount, decimals);
+async function executeStrategy(decision: AIDecision) {
+    if (decision.action !== "SWAP")
+        return;
 
-    console.log(`⚔️ Action: ${decision.sourceToken} (${decision.fromChain}) -> ${decision.targetToken} (${decision.targetChain})`);
+    const from = CHAINS_CONFIG[decision.fromChain];
+    const to = CHAINS_CONFIG[decision.targetChain];
+    const fromToken = from.tokens[decision.sourceToken];
+    const toToken = to.tokens[decision.targetToken];
+    const decimals = decision.sourceToken === "USDC" ? 6 : 18;
+    const amount = parseUnits(decision.amount, decimals);
 
-    const vaultPayload = encodeAbiParameters(
-        [{ name: 'tokenOut', type: 'address' }, { name: 'fee', type: 'uint24' }],
-        [targetTokenAddr as `0x${string}`, 3000]
+    console.log(
+        `⚔️ ${decision.sourceToken} (${decision.fromChain}) → ${decision.targetToken} (${decision.targetChain})`
     );
 
-    const executionData = encodeFunctionData({
-        abi: parseAbi(["function onFundsReceived(address token, uint256 amount, bytes calldata data)"]),
-        functionName: 'onFundsReceived',
-        args: [fromTokenAddr, 0n, vaultPayload]
-    });
-
-    const LIFI_API = "https://staging.li.quest/v1/quote";
-
     const params = new URLSearchParams({
-        fromChain: String(fromConfig.id),
-        toChain: String(toConfig.id),
-        fromToken: String(fromTokenAddr),
-        toToken: String(targetTokenAddr),
-        fromAmount: amountRaw.toString(),
-        fromAddress: String(account.address),
-        toContractAddress: String(toConfig.vault),
-        allowDestinationCall: "true" 
+        fromChain: String(from.id),
+        toChain: String(to.id),
+        fromToken: String(fromToken),
+        toToken: String(toToken),
+        fromAmount: amount.toString(),
+        fromAddress: account.address,
+        toAddress: to.vault,
     });
 
-    console.log(`🔄 Requesting Testnet Route from LI.FI Staging...`);
-    const res = await fetch(`${LIFI_API}?${params.toString()}`);
+    const res = await fetch(
+        `https://staging.li.quest/v1/quote?${params.toString()}`
+    );
     const quote = await res.json();
 
     if (!quote.transactionRequest) {
-        console.error("❌ LI.FI Detail:", quote.errors || quote.message);
-        throw new Error(`LI.FI Route Not Found on Testnet.`);
+        console.error("❌ LI.FI error:", quote);
+        throw new Error("LI.FI route not found (testnet limitation)");
     }
-    const walletClient = createWalletClient({
+
+    const wallet = createWalletClient({
         account,
-        chain: fromConfig.viemChain,
-        transport: http(fromConfig.rpc)
+        chain: from.viemChain,
+        transport: http(from.rpc),
     });
 
-    console.log(`🚀 Route Found via ${quote.tool}. Executing...`);
-    
-    const hash = await walletClient.sendTransaction({
+    console.log(`🚀 Executing via ${quote.tool}`);
+
+    const hash = await wallet.sendTransaction({
         to: quote.transactionRequest.to,
         data: quote.transactionRequest.data,
         value: BigInt(quote.transactionRequest.value || 0),
-        account
     });
 
-    console.log(`✅ Success! Hash: ${hash}`);
+    console.log(`✅ Tx sent: ${hash}`);
 }
 
-async function main() {
+async function main()
+{
     try {
-        const vaultStates = await scanAllVaults();
-        console.table(vaultStates);
+        const vaults = await scanAllVaults();
+        console.table(vaults);
 
-        const decision = await askAIForStrategy(vaultStates);
-        
-        if (decision.action === "SWAP") {
-            console.log(`🎯 AI Decision: Move ${decision.amount} ${decision.sourceToken} to ${decision.targetToken}`);
-            console.log(`🗣️ Reason: ${decision.reason}`);
-            await executeStrategy(decision);
-        } else {
-            console.log("💤 AI decided to wait.");
+        const decision = await askAIForStrategy(vaults);
+
+        if (decision.action === "WAIT") {
+          console.log("💤 AI decided to wait");
+          return;
         }
-    } catch (error) {
-        console.error("💥 Agent Error:", error);
+        console.log(`🎯 Decision: ${decision.amount} ${decision.sourceToken} → ${decision.targetToken}`);
+        console.log(`🗣️ Reason: ${decision.reason}`);
+        await executeStrategy(decision);
+    } catch (e) {
+        console.error("💥 Agent Error:", e);
     }
 }
 
