@@ -4,6 +4,7 @@ import { baseSepolia, arbitrumSepolia, optimismSepolia, polygonAmoy, sepolia } f
 import Groq from "groq-sdk";
 import * as dotenv from 'dotenv';
 import { setDefaultResultOrder } from 'node:dns';
+
 setDefaultResultOrder('ipv4first');
 dotenv.config();
 const NATIVE_ETH = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
@@ -122,6 +123,30 @@ async function analyzeAllOpportunities(currentChainKey: string, amountInUSDC: st
     return decision;
 }
 
+async function getVaultBalances(chainKey: string) {
+    const config = CHAINS_CONFIG[chainKey];
+    const publicClient = createPublicClient({ 
+        chain: config.viemChain, 
+        transport: http(config.rpc) 
+    });
+
+    const tokens = config.tokens;
+    let report: any = {};
+
+    for (const [symbol, address] of Object.entries(tokens)) {
+        if (address === NATIVE_ETH) continue;
+        
+        const balance = await publicClient.readContract({
+            address: address as `0x${string}`,
+            abi: parseAbi(['function balanceOf(address) view returns (uint256)']),
+            functionName: 'balanceOf',
+            args: [config.vault]
+        });
+        
+        report[symbol] = formatUnits(balance as bigint, symbol === 'USDC' ? 6 : 18);
+    }
+    return report;
+}
 
 async function executeUniversalStrategy(fromChainKey: string, targetChainKey: string, targetTokenSymbol: string, amount: bigint) {
     const fromConfig = CHAINS_CONFIG[fromChainKey];
