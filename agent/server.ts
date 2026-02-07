@@ -21,20 +21,22 @@ app.post('/register-vault', (req, res) => {
 
 app.get('/run-agent', async (req, res) => {
     try {
-        console.log("⚡ Triggering Agent Run for ALL Vaults...");
-        // Modify your scan function to loop through 'userVaults' too
+        console.log("⚡ Triggering Agent Run...");
         const states = await scanAllVaults(userVaults); 
         const decision = await askAIForStrategy(states);
-        
+
         let txHash = null;
-        if (decision.action === "SWAP") {
+        if (decision && decision.action === "SWAP" && decision.fromChain) {
              txHash = await executeStrategy(decision);
-        }
-        
-        res.json({ success: true, decision, txHash });
+        }        
+        res.json({ 
+            success: true, 
+            decision: decision || { action: "WAIT", reason: "No valid strategy" }, 
+            txHash 
+        });
     } catch (error: any) {
-        console.error(error);
-        res.status(500).json({ error: error.message });
+        console.error("Agent Error:", error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 

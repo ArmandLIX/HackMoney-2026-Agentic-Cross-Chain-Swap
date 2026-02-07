@@ -138,23 +138,25 @@ export const scanAllVaults = async (userVaultAddresses: string[] = []) => {
 export const askAIForStrategy = async (fullReport: any) => {
     const prompt = `
     You are an AI Cross-Chain Liquidity Manager. 
-    Here is the current state of multiple user vaults:
-    ${JSON.stringify(fullReport, null, 2)}
+    Current state of vaults: ${JSON.stringify(fullReport)}
 
-    Your goal:
-    1. Look at each vault address.
-    2. If a vault has USDC on one chain but 0 on others, propose a MOVE.
-    3. If the total balance is too low (e.g., less than 5 USDC), return WAIT to save gas.
-    4. You MUST specify which vaultAddress you are acting upon.
+    Available Chain Keys: "SEP" (Sepolia), "BAS" (Base), "ARB" (Arbitrum).
+    Available Tokens: "USDC", "WETH".
 
-    Return ONLY a JSON object:
+    Rules:
+    1. If a vault has > 5 USDC on one chain and 0 on another, propose a SWAP.
+    2. Use ONLY the Chain Keys and Token Keys provided above.
+
+    Return ONLY this JSON format:
     {
-        "vaultAddress": "0x...", 
-        "action": "SWAP" | "WAIT",
-        "fromChain": "base" | "ethereum" | "arbitrum",
-        "toChain": "base" | "ethereum" | "arbitrum",
-        "amount": "number_as_string",
-        "reason": "short explanation"
+        "action": "SWAP",
+        "fromChain": "BAS",
+        "targetChain": "SEP",
+        "sourceToken": "USDC",
+        "targetToken": "USDC",
+        "amount": "10",
+        "reason": "description",
+        "vaultAddress": "0x..."
     }
     `;
 
@@ -165,8 +167,8 @@ export const askAIForStrategy = async (fullReport: any) => {
     });
 
     const decision = JSON.parse(response.choices[0].message.content || "{}");
-    console.log("🤖 AI Decision:", decision.reason);
-    return decision;
+    decision.action = decision.action || "WAIT"; 
+    return decision as AIDecision;
 };
 
 export const executeStrategy = async(decision: AIDecision) => {
