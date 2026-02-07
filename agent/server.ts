@@ -1,7 +1,7 @@
 // server.ts
 import express from 'express';
 import cors from 'cors';
-import { scanAllVaults, askAIForStrategy, executeStrategy } from './agent';
+import { scanAllVaults, askAIForStrategy, executeStrategy } from './agent.ts';
 
 const app = express();
 app.use(cors());
