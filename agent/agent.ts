@@ -83,80 +83,93 @@ type AIDecision = {
   reason: string;
 };
 
-async function scanAllVaults()
-{
-    console.log("🧐 Scanning Vault balances...");
-    const report: Record<string, Record<string, string>> = {};
+/**
+ * Scans all registered Vaults across all configured chains.
+ * @param userVaultAddresses - Optional array of additional vault addresses from the web dashboard.
+ * @returns A nested object containing balances for every vault on every chain.
+ */
+export const scanAllVaults = async (userVaultAddresses: string[] = []) => {
+    console.log("🧐 Scanning all registered Vault balances...");
+    
+    const firstChainKey = Object.keys(CHAINS_CONFIG)[0];
+    const mainVault = (CHAINS_CONFIG as any)[firstChainKey]?.vault;
+    const allVaultsToScan = Array.from(new Set([mainVault, ...userVaultAddresses])).filter(Boolean);
+    const fullReport: Record<string, any> = {};
 
-    for (const [key, config] of Object.entries(CHAINS_CONFIG)) {
-        const client = createPublicClient({
-            chain: config.viemChain,
-            transport: http(config.rpc),
-        });
+    for (const vaultAddress of allVaultsToScan) {
+        const vaultReport: Record<string, Record<string, string>> = {};
 
-        const balances: Record<string, string> = {};
+        for (const [chainKey, config] of Object.entries(CHAINS_CONFIG)) {
+            const typedConfig = config as any;
+            const client = createPublicClient({
+                chain: typedConfig.viemChain,
+                transport: http(typedConfig.rpc),
+            });
 
-        for (const [symbol, tokenAddress] of Object.entries(config.tokens)) {
-            if (tokenAddress === NATIVE_ETH)
-                continue;
-            try {
-                const bal = await client.readContract({
-                    address: tokenAddress as `0x${string}`,
-                    abi: parseAbi(["function balanceOf(address) view returns (uint256)"]),
-                    functionName: "balanceOf",
-                    args: [config.vault],
-                });
+            const balances: Record<string, string> = {};
 
-                balances[symbol] = formatUnits(
-                    bal as bigint,
-                    symbol === "USDC" ? 6 : 18
-                );
-            } catch {
-                balances[symbol] = "0";
+            for (const [symbol, tokenAddress] of Object.entries(typedConfig.tokens)) {
+                if (tokenAddress === NATIVE_ETH) continue;
+                
+                try {
+                    const bal = await client.readContract({
+                        address: tokenAddress as `0x${string}`,
+                        abi: parseAbi(["function balanceOf(address) view returns (uint256)"]),
+                        functionName: "balanceOf",
+                        args: [vaultAddress as `0x${string}`],
+                    });
+
+                    balances[symbol] = formatUnits(
+                        bal as bigint,
+                        symbol === "USDC" ? 6 : 18
+                    );
+                } catch (err) {
+                    balances[symbol] = "0";
+                }
             }
+            vaultReport[chainKey] = balances;
         }
-        report[key] = balances;
+        fullReport[vaultAddress as string] = vaultReport;
     }
-  return report;
-}
 
-async function askAIForStrategy(vaultStates: any): Promise<AIDecision>
-{
-    console.log("🤖 AI is analyzing states...");
+    return fullReport;
+};
 
+export const askAIForStrategy = async (fullReport: any) => {
     const prompt = `
-        You are a Cross-Chain DeFi Agent.
+    You are an AI Cross-Chain Liquidity Manager. 
+    Here is the current state of multiple user vaults:
+    ${JSON.stringify(fullReport, null, 2)}
 
-        Inventory:
-        ${JSON.stringify(vaultStates, null, 2)}
+    Your goal:
+    1. Look at each vault address.
+    2. If a vault has USDC on one chain but 0 on others, propose a MOVE.
+    3. If the total balance is too low (e.g., less than 5 USDC), return WAIT to save gas.
+    4. You MUST specify which vaultAddress you are acting upon.
 
-        RULES (VERY IMPORTANT):
-        1. Only perform cross-chain transfers using ETH or WETH.
-        2. USDC swaps MUST be same-chain only.
-        3. If balance is zero, return WAIT.
-        4. Prefer moving funds from where they are idle.
-
-        Output STRICT JSON:
-        {
+    Return ONLY a JSON object:
+    {
+        "vaultAddress": "0x...", 
         "action": "SWAP" | "WAIT",
-        "fromChain": "SEP" | "BAS" | "ARB",
-        "targetChain": "SEP" | "BAS" | "ARB",
-        "sourceToken": "USDC" | "WETH" | "ETH",
-        "targetToken": "USDC" | "WETH" | "ETH",
-        "amount": "string",
-        "reason": "string"
-        }`;
+        "fromChain": "base" | "ethereum" | "arbitrum",
+        "toChain": "base" | "ethereum" | "arbitrum",
+        "amount": "number_as_string",
+        "reason": "short explanation"
+    }
+    `;
 
-    const res = await groq.chat.completions.create({
-        model: "llama-3.1-8b-instant",
-        messages: [{ role: "system", content: prompt }],
+    const response = await groq.chat.completions.create({
+        messages: [{ role: "user", content: prompt }],
+        model: "llama-3.1-70b-versatile",
         response_format: { type: "json_object" },
     });
 
-    return JSON.parse(res.choices[0].message.content!) as AIDecision;
-}
+    const decision = JSON.parse(response.choices[0].message.content || "{}");
+    console.log("🤖 AI Decision:", decision.reason);
+    return decision;
+};
 
-async function executeStrategy(decision: AIDecision) {
+export const executeStrategy = async(decision: AIDecision) => {
     if (decision.action !== "SWAP")
         return;
 
