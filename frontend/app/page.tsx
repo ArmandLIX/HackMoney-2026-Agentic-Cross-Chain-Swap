@@ -5,7 +5,7 @@ import { ethers } from 'ethers';
 import axios from 'axios';
 
 // ⚠️ REPLACE THIS with your actual Ngrok URL
-const API_URL = "https://your-ngrok-url.ngrok-free.app"; 
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export default function Home() {
   const [account, setAccount] = useState<string | null>(null);
@@ -60,7 +60,7 @@ export default function Home() {
     <div className="min-h-screen bg-slate-900 text-white p-10 font-mono">
       <header className="flex justify-between items-center mb-10">
         <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-600">
-          OmniYield AI Agent
+          OmniSwap AI Agent
         </h1>
         <button onClick={connect} className="bg-blue-600 px-6 py-2 rounded hover:bg-blue-700 transition-colors">
           {account ? `${account.slice(0,6)}...${account.slice(-4)}` : "Connect Wallet"}
