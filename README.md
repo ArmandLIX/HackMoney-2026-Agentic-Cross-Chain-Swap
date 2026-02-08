@@ -2,7 +2,17 @@
 
 > **An autonomous AI-driven agent that manages cross-chain liquidity using LI.FI routing and Uniswap swaps**
 
-Built for **HackMoney 2026** — Category: **DeFi / Agentic Finance / Cross-Chain**
+Built for **HackMoney 2026** — Category: **DeFi / Agentic Finance / Cross-Chain** / LI-FI / Uniswap
+
+---
+
+## 🌐 Live Demo & Testing
+
+You can test the agent interface live. Follow these steps to see the autonomous logic in action:
+
+1.  **Access the Dashboard:** [https://foundry-hackmoney-2026-agentic-cross-chain-swap.pages.dev/](https://foundry-hackmoney-2026-agentic-cross-chain-swap.pages.dev/)
+2.  **Bypass Ngrok Warning:** Since the agent runs on a secure local tunnel for the hackathon, click the **"Visit Site"** button if you see an Ngrok security warning.
+3.  **Run the Agent:** Click on **"Run AI Agent"** to watch the scan, strategy analysis, and simulated execution in real-time.
 
 ---
 
