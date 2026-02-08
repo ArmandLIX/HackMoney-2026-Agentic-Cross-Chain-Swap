@@ -44,12 +44,26 @@ export default function Home() {
     setLoading(true);
     addLog("🤖 AI is Scanning the blockchain...");
     try {
-      const res = await axios.get(`${API_URL}/run-agent`);
-      addLog(`🧠 AI Decision: ${res.data.decision.action}`);
-      if (res.data.decision.reason) addLog(`🗣️ Reason: ${res.data.decision.reason}`);
-      if (res.data.txHash) addLog(`🚀 Transaction Sent: ${res.data.txHash}`);
+      const res = await axios.get(`${API_URL}/run-agent`, {
+        headers: {
+          "ngrok-skip-browser-warning": "true",
+          "Accept": "application/json"
+        }
+      });
+      const decision = res.data.decision;
+      const txHash = res.data.txHash;
+      if (decision) {
+        addLog(`🧠 AI Decision: ${decision.action}`);
+        if (decision.reason) addLog(`🗣️ Reason: ${decision.reason}`);
+      }
+      if (txHash) {
+        addLog(`🚀 Transaction Sent: ${txHash}`);
+      }
     } catch (e: any) {
-      addLog(`❌ Error: ${e.message}`);
+      const errorMessage = e.response?.data?.includes?.("<!DOCTYPE html>") 
+        ? "Ngrok Blocked (Click 'Visit Site' in your tunnel URL tab)"
+        : e.message; 
+      addLog(`❌ Error: ${errorMessage}`);
     }
     setLoading(false);
   };

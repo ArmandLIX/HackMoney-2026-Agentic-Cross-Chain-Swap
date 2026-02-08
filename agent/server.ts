@@ -40,4 +40,9 @@ app.get('/run-agent', async (req, res) => {
     }
 });
 
-app.listen(3001, () => console.log('🤖 Agent Server running on port 3001'));
+app.listen(3001, () => {
+    console.log('🤖 Agent Server running on port 3001');
+    console.log('📡 Listening for Frontend commands...');
+});
+
+process.stdin.resume();
